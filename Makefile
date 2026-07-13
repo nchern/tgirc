@@ -1,8 +1,5 @@
-NAME=tgterm
-TAG=latest
-BASE_BUILDER_IMAGE_NAME=base-builder:latest
-IMAGE_NAME=$(NAME):$(TAG)
-OUT=$(NAME)
+OUT=tgirc
+
 
 .PHONY: install-deps
 install-deps:
@@ -44,7 +41,6 @@ coverage-html: vet
 	@./tools/coverage.sh html
 
 
-# .PHONY: local-run
-# local-run:
-# 	@cp artifacts/errors.log artifacts/errors.log.1 2> /dev/null || true
-# 	@go run main.go 2> artifacts/errors.log || tail -n20 artifacts/errors.log
+.PHONY: local-run
+local-run:
+	@go run main.go
