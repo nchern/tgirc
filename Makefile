@@ -1,4 +1,7 @@
 OUT=tgirc
+GO_BUILD_FLAGS ?= -tags libtdjson
+TDLIB_RPATH_LDFLAGS ?= -Wl,-rpath,/usr/local/lib
+override export CGO_LDFLAGS := $(strip $(CGO_LDFLAGS) $(TDLIB_RPATH_LDFLAGS))
 
 
 .PHONY: install-deps
@@ -18,17 +21,17 @@ vet:
 
 .PHONY: build
 build: vet
-	@go build -o bin/$(OUT) .
+	@go build $(GO_BUILD_FLAGS) -o bin/$(OUT) .
 
 
 .PHONY: install
 install: build test
-	@go install ./...
+	@go install $(GO_BUILD_FLAGS) ./...
 
 
 .PHONY: test
 test: build
-	go test -race -timeout=10s ./...
+	go test $(GO_BUILD_FLAGS) -race -timeout=10s ./...
 
 
 .PHONY: coverage
@@ -43,4 +46,4 @@ coverage-html: vet
 
 .PHONY: local-run
 local-run:
-	@go run main.go
+	@go run $(GO_BUILD_FLAGS) main.go
