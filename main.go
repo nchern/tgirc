@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -98,10 +97,7 @@ func startTg(events chan<- *Event) (*client.Client, *client.User, error) {
 		return nil, nil, err
 	}
 
-	recvFn := func(update client.Type) {
-		events <- &Event{tgUpdate: update}
-	}
-	tg, err := client.NewClient(authorizer, client.WithResultHandler(client.NewCallbackResultHandler(recvFn)))
+	tg, err := client.NewClient(authorizer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -114,21 +110,21 @@ func startTg(events chan<- *Event) (*client.Client, *client.User, error) {
 	}
 	logger.Info.Printf("TDLib version: %s", opt.(*client.OptionValueString).Value)
 
-	me, err := tg.GetMe(context.Background())
+	me, err := tg.GetMe()
 	if err != nil {
 		return nil, nil, err
 	}
 	return tg, me, nil
 }
 
-// func processTgUpdates(events chan *Event, tg *client.Client) {
-// 	listener := tg.GetListener()
-// 	defer listener.Close()
+func processTgUpdates(events chan *Event, tg *client.Client) {
+	listener := tg.GetListener()
+	defer listener.Close()
 
-// 	for update := range listener.Updates {
-// 		events <- &Event{tgUpdate: update}
-// 	}
-// }
+	for update := range listener.Updates {
+		events <- &Event{tgUpdate: update}
+	}
+}
 
 func onUpdateChatLastMessage(state *State, up *client.UpdateChatLastMessage) error {
 	chat, err := state.tg.GetChat(up.ChatId)
@@ -152,7 +148,7 @@ func fetchChatMembers(ts TGSession, chat *tg.Chat) ([]*tg.User, error) {
 	case *client.ChatTypePrivate:
 		ids = []int64{t.UserId}
 	case *client.ChatTypeBasicGroup:
-		info, err := ts.GetBasicGroupFullInfo(context.Background(),
+		info, err := ts.GetBasicGroupFullInfo(
 			&client.GetBasicGroupFullInfoRequest{BasicGroupId: t.BasicGroupId})
 		if err != nil {
 			return nil, err
@@ -164,7 +160,7 @@ func fetchChatMembers(ts TGSession, chat *tg.Chat) ([]*tg.User, error) {
 			}
 		}
 	default:
-		return nil, errors.New("fetchChatMembers: unsupported chat type: " + chat.Type.ChatTypeConstructor())
+		return nil, errors.New("fetchChatMembers: unsupported chat type: " + chat.Type.ChatTypeType())
 	}
 	res := make([]*tg.User, 0, len(ids))
 	for _, id := range ids {
@@ -201,11 +197,11 @@ func onDeleteMessages(state *State, up *client.UpdateDeleteMessages) error {
 }
 
 func onUpdate(state *State, update client.Type) error {
-	logger.Debug.Printf("onUpdate: %s %s", update.GetConstructor(), update.GetType())
+	logger.Debug.Printf("onUpdate: %s %s", update.GetClass(), update.GetType())
 
 	switch up := update.(type) {
 	case *client.UpdateUserStatus:
-		logger.Info.Printf("onUpdate: new status: %s", up.Status.UserStatusConstructor())
+		logger.Info.Printf("onUpdate: new status: %s", up.Status.UserStatusType())
 	case *client.UpdateNewChat:
 		if err := onNewChat(state, tg.NewChat(up.Chat)); err != nil {
 			return fmt.Errorf("onUpdateNewChat : %w", err)
@@ -253,7 +249,7 @@ func onNewMessage(state *State, m *client.Message) error {
 	}
 	fmt.Printf("incoming msg: user_id=%d chat_title=%s irc_nick=%s chat_id=%d chat_type=%s message_id=%d %s\n",
 		msg.SenderID(), msg.Chat.Title, msg.Sender.IRCNickname(), msg.ChatId,
-		chat.Type.ChatTypeConstructor(), msg.Id, msg.FirstLine())
+		chat.Type.ChatTypeType(), msg.Id, msg.FirstLine())
 
 	sender := msg.Sender.IRCNickname()
 	if msg.Sender.Id == state.tg.User().Id {
@@ -280,14 +276,14 @@ func main() {
 
 	dieIf(populateChats(state))
 
-	// go processTgUpdates(events, tgClient)
+	go processTgUpdates(events, tgClient)
 	go mainEventLoop(state, events)
 
 	dieIf(serveIRCAndWait(events))
 }
 
 func populateChats(state *State) error {
-	chatIDs, err := state.tg.GetChats(context.Background(), &client.GetChatsRequest{Limit: 400})
+	chatIDs, err := state.tg.GetChats(&client.GetChatsRequest{Limit: 400})
 	if err != nil {
 		return err
 	}
@@ -333,12 +329,12 @@ func serveIRCAndWait(events chan *Event) error {
 }
 
 type TGSession interface {
-	GetBasicGroupFullInfo(context.Context, *client.GetBasicGroupFullInfoRequest) (*client.BasicGroupFullInfo, error)
+	GetBasicGroupFullInfo(*client.GetBasicGroupFullInfoRequest) (*client.BasicGroupFullInfo, error)
 
 	GetChat(chatID int64) (*tg.Chat, error)
-	GetChats(context.Context, *client.GetChatsRequest) (*client.Chats, error)
+	GetChats(*client.GetChatsRequest) (*client.Chats, error)
 
-	GetNetworkStatistics(context.Context, *client.GetNetworkStatisticsRequest) (*client.NetworkStatistics, error)
+	GetNetworkStatistics(*client.GetNetworkStatisticsRequest) (*client.NetworkStatistics, error)
 
 	GetUser(userID int64) (*tg.User, error)
 
@@ -378,7 +374,7 @@ func NewState(tgSession TGSession) *State {
 
 func (s *State) registerChat(chat *tg.Chat) {
 	logger.Debug.Printf("registerChat chat_id=%d chat_title=%s chat_type=%s slugged_title=%s",
-		chat.Id, chat.Title, chat.Type.ChatTypeConstructor(), slugify(chat.Title))
+		chat.Id, chat.Title, chat.Type.ChatTypeType(), slugify(chat.Title))
 	if !chat.Supported() {
 		logger.Debug.Printf("registerChat: skip unsupported chat_id=%d chat_title=%s", chat.Id, chat.Title)
 		return
@@ -567,7 +563,7 @@ func handleConnection(events chan *Event, sess *session) {
 
 func handleSystemReplies(state *State, cmd CMD) error {
 	if cmd.tail() == "stats" {
-		stats, err := state.tg.GetNetworkStatistics(context.Background(),
+		stats, err := state.tg.GetNetworkStatistics(
 			&client.GetNetworkStatisticsRequest{OnlyCurrent: true})
 		if err != nil {
 			return err
@@ -577,7 +573,7 @@ func handleSystemReplies(state *State, cmd CMD) error {
 			switch ns := e.(type) {
 			case *client.NetworkStatisticsEntryFile:
 				reply = fmt.Sprintf("network_type=%s; sent_bytes=%d; received_bytes=%d",
-					ns.NetworkType.NetworkTypeConstructor(), ns.SentBytes, ns.ReceivedBytes)
+					ns.NetworkType.NetworkTypeType(), ns.SentBytes, ns.ReceivedBytes)
 			}
 			if err := state.curSession.SendPrivMsg(
 				systemNick, state.tg.User().IRCNickname(), reply); err != nil {

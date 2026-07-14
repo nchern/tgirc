@@ -1,7 +1,6 @@
 package tg
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -31,7 +30,7 @@ func NewSession(c *client.Client, user *User) *Session {
 func (tg *Session) User() *User { return tg.user }
 
 func (tg *Session) ViewMessages(chatID int64, messageIDs ...int64) error {
-	_, err := tg.Client.ViewMessages(context.Background(), &client.ViewMessagesRequest{
+	_, err := tg.Client.ViewMessages(&client.ViewMessagesRequest{
 		// XXX: Forcing to mark it as read is a temporary hack.
 		// The proper logic involves opening / closing chats
 		// which is unclear how to do as of now
@@ -44,7 +43,7 @@ func (tg *Session) ViewMessages(chatID int64, messageIDs ...int64) error {
 }
 
 func (tg *Session) GetUser(userID int64) (*User, error) {
-	u, err := tg.Client.GetUser(context.Background(), &client.GetUserRequest{UserId: userID})
+	u, err := tg.Client.GetUser(&client.GetUserRequest{UserId: userID})
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +51,7 @@ func (tg *Session) GetUser(userID int64) (*User, error) {
 }
 
 func (tg *Session) GetChat(chatID int64) (*Chat, error) {
-	ct, err := tg.Client.GetChat(context.Background(), &client.GetChatRequest{ChatId: chatID})
+	ct, err := tg.Client.GetChat(&client.GetChatRequest{ChatId: chatID})
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +60,7 @@ func (tg *Session) GetChat(chatID int64) (*Chat, error) {
 
 // Send sends a text message to Telegram
 func (tg *Session) Send(chatID int64, text string) (*client.Message, error) {
-	return tg.SendMessage(context.Background(), &client.SendMessageRequest{
+	return tg.SendMessage(&client.SendMessageRequest{
 		ChatId: chatID,
 		InputMessageContent: &client.InputMessageText{
 			Text: &client.FormattedText{
@@ -188,7 +187,7 @@ func (m *Message) Text() string {
 		}
 		return "<unknown-sticker>"
 	default:
-		return fmt.Sprintf("Unknown message: <%s>", m.Content.MessageContentConstructor())
+		return fmt.Sprintf("Unknown message: <%s>", m.Content.MessageContentType())
 	}
 }
 
@@ -209,7 +208,7 @@ func (m *Message) SenderID() int64 {
 	if c, ok := m.SenderId.(*client.MessageSenderChat); ok {
 		return c.ChatId
 	}
-	panic("Unknown MessageSenderType: " + m.SenderId.MessageSenderConstructor())
+	panic("Unknown MessageSenderType: " + m.SenderId.MessageSenderType())
 }
 
 // Chat is a convenience wrapper for client.Chat struc
@@ -235,7 +234,7 @@ func (ch *Chat) SetMembers(members []*User) *Chat {
 }
 
 func (ch *Chat) Topic() string {
-	return fmt.Sprintf("%s (%s)", ch.Title, ch.Type.ChatTypeConstructor())
+	return fmt.Sprintf("%s (%s)", ch.Title, ch.Type.ChatTypeType())
 }
 
 func (ch *Chat) ChannelName() string {
@@ -247,7 +246,10 @@ func (ch *Chat) ChannelName() string {
 }
 
 func (ch *Chat) Supported() bool {
-	typ := ch.Type.ChatTypeConstructor()
-	// return typ == client.TypeChatTypePrivate || typ == client.ChatTypeBasicGroup
-	return typ == client.ConstructorChatTypePrivate || typ == client.ConstructorChatTypeBasicGroup
+	switch ch.Type.(type) {
+	case *client.ChatTypePrivate, *client.ChatTypeBasicGroup:
+		return true
+	default:
+		return false
+	}
 }

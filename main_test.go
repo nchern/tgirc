@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"io"
 	"net"
 	"testing"
@@ -111,7 +110,6 @@ func (t *mockTGSession) addChats(chats ...*tg.Chat) *mockTGSession {
 }
 
 func (t *mockTGSession) GetBasicGroupFullInfo(
-	ctx context.Context,
 	req *client.GetBasicGroupFullInfoRequest) (*client.BasicGroupFullInfo, error) {
 	panic("Not implemented")
 }
@@ -120,12 +118,11 @@ func (t *mockTGSession) GetChat(chatID int64) (*tg.Chat, error) {
 	return t.chats[chatID], nil
 }
 
-func (t *mockTGSession) GetChats(context.Context, *client.GetChatsRequest) (*client.Chats, error) {
+func (t *mockTGSession) GetChats(*client.GetChatsRequest) (*client.Chats, error) {
 	panic("Not implemented")
 }
 
 func (t *mockTGSession) GetNetworkStatistics(
-	context.Context,
 	*client.GetNetworkStatisticsRequest) (*client.NetworkStatistics, error) {
 
 	panic("Not implemented")
