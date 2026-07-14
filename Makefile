@@ -4,6 +4,11 @@ TDLIB_RPATH_LDFLAGS ?= -Wl,-rpath,/usr/local/lib
 override export CGO_LDFLAGS := $(strip $(CGO_LDFLAGS) $(TDLIB_RPATH_LDFLAGS))
 
 
+.PHONY: clean
+clean:
+	@find ./artifacts ./bin -type d -print0 | xargs -0 rm -rf
+
+
 .PHONY: install-deps
 install-deps:
 	@go mod download
