@@ -17,6 +17,10 @@ type Msg string
 
 func (s Msg) Lines() []string { return strings.Split(string(s), "\n") }
 
+func Msgf(format string, a ...any) Msg {
+	return Msg(fmt.Sprintf(format, a...))
+}
+
 // Session represents IRC session
 type Session struct {
 	conn   net.Conn

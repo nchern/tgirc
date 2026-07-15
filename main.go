@@ -616,17 +616,17 @@ func handleIRCJoinToChannels(state *State, channels ...string) error {
 			continue
 		}
 		replies := []irc.Msg{
-			irc.Msg(fmt.Sprintf(":%s JOIN %s", sess.Nick, cn)),
-			irc.Msg(fmt.Sprintf(":%s 332 %s %s :%s",
-				serverName, sess.Nick, cn, chat.Topic())),
+			irc.Msgf(":%s JOIN %s", sess.Nick, cn),
+			irc.Msgf(":%s 332 %s %s :%s",
+				serverName, sess.Nick, cn, chat.Topic()),
 		}
 		for _, m := range chat.Members() {
 			replies = append(replies,
-				irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname(chat))))
+				irc.Msgf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname(chat)))
 		}
 		replies = append(replies,
-			irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, "@"+systemNick)))
-		replies = append(replies, irc.Msg(fmt.Sprintf(":localhost 366 %s %s :End of /NAMES list.", sess.Nick, cn)))
+			irc.Msgf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, "@"+systemNick))
+		replies = append(replies, irc.Msgf(":localhost 366 %s %s :End of /NAMES list.", sess.Nick, cn))
 		if _, err := sess.Write(replies...); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
@@ -729,11 +729,11 @@ func handleIRCCommand(state *State, msg string) error {
 		replies := make([]irc.Msg, 0, len(chats))
 		for _, cht := range chats {
 			replies = append(replies,
-				irc.Msg(fmt.Sprintf(":%s 322 %s %s 0 :%s",
-					serverName, state.irc.Nick, cht.ChannelName(), cht.Topic())))
+				irc.Msgf(":%s 322 %s %s 0 :%s",
+					serverName, state.irc.Nick, cht.ChannelName(), cht.Topic()))
 		}
 		replies = append(replies,
-			irc.Msg(fmt.Sprintf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick)))
+			irc.Msgf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick))
 		if _, err := sess.Write(replies...); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
