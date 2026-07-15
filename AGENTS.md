@@ -1,4 +1,6 @@
 
+
+
 ## Collaboration rules
 - do: robotic answers
 - no flattery; no useless politeness like "great question" etc.
@@ -18,9 +20,9 @@
 - Goal: restore independent, high-fidelity thinking.
 
 ## Project hints and ways of working
-- do not introduce dependencies unnecessarily
 - implement code in Golang
 - prefer boring Golang with its standard library
+- do not introduce dependencies unnecessarily without checking with me first
 - make minimal changes to achieve the goal
 - Do not claim success unless `make test` passes.
 - Report the exact command executed and summarize any failures.
