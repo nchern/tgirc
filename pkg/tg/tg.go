@@ -85,8 +85,15 @@ func (u *User) PrimaryUsername() string {
 }
 
 // IRCNickname returns a nick sutable for IRC
-func (u *User) IRCNickname() string {
-	return slugify(u.PrimaryUsername())
+func (u *User) IRCNickname(chat *Chat) string {
+	res := slugify(u.PrimaryUsername())
+	if chat == nil {
+		return res
+	}
+	if chat.Type.ChatTypeType() == client.TypeChatTypePrivate {
+		return chat.NormalizedName()
+	}
+	return res
 }
 
 // Message provides a complete and offline message data structure that
@@ -237,12 +244,16 @@ func (ch *Chat) Topic() string {
 	return fmt.Sprintf("%s (%s)", ch.Title, ch.Type.ChatTypeType())
 }
 
-func (ch *Chat) ChannelName() string {
+func (ch *Chat) NormalizedName() string {
 	res := strings.TrimSpace(slugify(ch.Title))
 	if res == "" {
 		res = fmt.Sprintf("%d", ch.Id)
 	}
-	return "#" + res
+	return res
+}
+
+func (ch *Chat) ChannelName() string {
+	return "#" + ch.NormalizedName()
 }
 
 func (ch *Chat) Supported() bool {

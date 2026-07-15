@@ -193,7 +193,7 @@ func onDeleteMessages(state *State, up *client.UpdateDeleteMessages) error {
 		return err
 	}
 	s := fmt.Sprintf("%d message(s) got deleted from chat [%s]", len(up.MessageIds), chat.Title)
-	return state.irc.SendPrivMsg(systemNick, state.tg.User().IRCNickname(), s)
+	return state.irc.SendPrivMsg(systemNick, state.tg.User().IRCNickname(chat), s)
 }
 
 func onUpdate(state *State, update client.Type) error {
@@ -248,10 +248,11 @@ func onNewMessage(state *State, m *client.Message) error {
 		msg.Sender = u
 	}
 	fmt.Printf("incoming msg: user_id=%d chat_title=%s irc_nick=%s chat_id=%d chat_type=%s message_id=%d %s\n",
-		msg.SenderID(), msg.Chat.Title, msg.Sender.IRCNickname(), msg.ChatId,
+		msg.SenderID(), msg.Chat.Title, msg.Sender.IRCNickname(chat), msg.ChatId,
 		chat.Type.ChatTypeType(), msg.Id, msg.FirstLine())
 
-	sender := msg.Sender.IRCNickname()
+	sender := msg.Sender.IRCNickname(chat)
+
 	// works model when we map each user to a channel in IRC
 	// it mirrors nick given in irc in case the sender is myself
 	// so users are consistently shown by IRC client:
@@ -448,7 +449,7 @@ func mainEventLoop(state *State, events chan *Event) {
 		} else if ev.newSession != nil {
 			if state.irc != nil && !state.irc.Closed() {
 				if err := state.irc.SendPrivMsg(
-					systemNick, state.tg.User().IRCNickname(),
+					systemNick, state.tg.User().IRCNickname(nil),
 					"New inbound IRC connection. Disconnect this session"); err != nil {
 					logger.Error.Printf("%s %s", state.irc, err)
 				}
@@ -492,14 +493,14 @@ func handleSystemReplies(state *State, cmd irc.CMD) error {
 					ns.NetworkType.NetworkTypeType(), ns.SentBytes, ns.ReceivedBytes)
 			}
 			if err := state.irc.SendPrivMsg(
-				systemNick, state.tg.User().IRCNickname(), reply); err != nil {
+				systemNick, state.tg.User().IRCNickname(nil), reply); err != nil {
 				return fmt.Errorf("handleSystemReplies : %w", err)
 			}
 		}
 		return nil
 	}
 	if err := state.irc.SendPrivMsg(
-		systemNick, state.tg.User().IRCNickname(), "System is up and running."); err != nil {
+		systemNick, state.tg.User().IRCNickname(nil), "System is up and running."); err != nil {
 		return fmt.Errorf("handleSystemReplies : %w", err)
 	}
 	return nil
@@ -524,7 +525,7 @@ func handleIRCJoinToChannels(state *State, channels ...string) error {
 		}
 		for _, m := range chat.Members() {
 			replies = append(replies,
-				irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname())))
+				irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname(chat))))
 		}
 		replies = append(replies,
 			irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, "@"+systemNick)))
@@ -597,7 +598,7 @@ func handleIRCCommand(state *State, msg string) error {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 		if err := state.irc.SendPrivMsg(
-			systemNick, state.tg.User().IRCNickname(), "Hello!"); err != nil {
+			systemNick, state.tg.User().IRCNickname(nil), "Hello!"); err != nil {
 			return fmt.Errorf("write to connection : %w", err)
 		}
 		// TODO: implement auto-join on connection
