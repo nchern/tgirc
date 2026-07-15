@@ -1,6 +1,6 @@
 #!/bin/sh -ue
 
-pkg="./pkg/...,./tgirc/..."
+pkg="./pkg/...,./..."
 
 coverprofile="artifacts/coverage.out"
 

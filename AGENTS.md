@@ -20,7 +20,7 @@
 - Goal: restore independent, high-fidelity thinking.
 
 ## Project hints and ways of working
-- implement code in Golang
+- implement code in Golang; write idiomatic Go
 - prefer boring Golang with its standard library
 - do not introduce dependencies unnecessarily without checking with me first
 - make minimal changes to achieve the goal
