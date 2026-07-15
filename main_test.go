@@ -168,7 +168,16 @@ func playEventsOnMainLoop(conn net.Conn, state *State, events ...*Event) {
 	mainEventLoop(state, in)
 }
 
+func mkChat() *tg.Chat {
+	tp := &client.ChatTypePrivate{}
+	tp.Type = client.TypeChatTypePrivate
+	return &tg.Chat{
+		Chat: &client.Chat{Id: 1, Title: "test-chat", Type: tp},
+	}
+}
+
 func TestHandleIRCEventsShouldProcess(t *testing.T) {
+	chat := mkChat()
 	var tests = []struct {
 		name     string
 		expected []string
@@ -184,12 +193,16 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 			[]string{":localhost CAP * LS :\n"},
 			"CAP LS 302"},
 		{"mode",
-			[]string{":localhost 324 MODE -?- #channel +\n"},
-			"MODE #channel"},
+			[]string{":localhost 324 MODE -?- #test-chat +\n"},
+			"MODE #test-chat"},
 		{"user",
 			[]string{
 				":localhost 001 -?- :Welcome to the Telegram to IRC bridge -?-!usr@localhost\n",
 				":SysServ PRIVMSG 42 :Hello!\n",
+				":-?- JOIN #test-chat\n",
+				":localhost 332 -?- #test-chat :test-chat (chatTypePrivate)\n",
+				":localhost 353 -?- = #test-chat :@SysServ\n",
+				":localhost 366 -?- #test-chat :End of /NAMES list.\n",
 			},
 			"USER usr 0 * :usr"},
 		{"private message to Sys user",
@@ -206,6 +219,8 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			state := NewState(newMockTGSession())
+
+			state.chats[chat.Id] = chat
 			conn := newMockConn()
 
 			playEventsOnMainLoop(conn, state,
