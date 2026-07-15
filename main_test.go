@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	irc "github.com/nchern/tgirc/pkg"
 	"github.com/nchern/tgirc/pkg/logger"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/stretchr/testify/assert"
@@ -155,7 +156,7 @@ func (t *mockTGSession) ViewMessages(chatID int64, messageIDs ...int64) error {
 }
 
 func playEventsOnMainLoop(conn net.Conn, state *State, events ...*Event) {
-	sess := newSession(conn)
+	sess := irc.NewSession(conn)
 
 	in := make(chan *Event, len(events)+1)
 	in <- &Event{newSession: sess}
@@ -210,8 +211,8 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 			playEventsOnMainLoop(conn, state,
 				&Event{ircUpdate: tt.given})
 
-			assert.NotNil(t, state.curSession)
-			assert.False(t, state.curSession.closed)
+			assert.NotNil(t, state.irc)
+			assert.False(t, state.irc.Closed())
 			assert.Equal(t, tt.expected, conn.written)
 		})
 	}
@@ -226,13 +227,13 @@ func TestHandleIRCNickCommandShouldSetNickOnSession(t *testing.T) {
 		&Event{ircUpdate: "NICK " + expected})
 
 	assert.Len(t, conn.written, 0)
-	assert.False(t, state.curSession.closed)
-	assert.Equal(t, expected, state.curSession.Nick)
+	assert.False(t, state.irc.Closed())
+	assert.Equal(t, expected, state.irc.Nick)
 }
 
 func TestShouldDropCurrentConnectionOnNewIncoming(t *testing.T) {
 	curConn := newMockConn()
-	newSess := newSession(newMockConn())
+	newSess := irc.NewSession(newMockConn())
 	tgSess := newMockTGSession()
 
 	state := NewState(tgSess)
@@ -242,9 +243,9 @@ func TestShouldDropCurrentConnectionOnNewIncoming(t *testing.T) {
 
 	expected := []string{":SysServ PRIVMSG 42 :New inbound IRC connection. Disconnect this session\n"}
 	assert.Equal(t, expected, curConn.written)
-	assert.Equal(t, newSess, state.curSession)
+	assert.Equal(t, newSess, state.irc)
 	assert.True(t, curConn.closed)
-	assert.False(t, newSess.closed)
+	assert.False(t, newSess.Closed())
 }
 
 func TestHandleIRCPrivMessageShould(t *testing.T) {
@@ -291,8 +292,8 @@ func TestHandleIRCPrivMessageShould(t *testing.T) {
 			playEventsOnMainLoop(conn, state,
 				&Event{ircUpdate: tt.given})
 
-			assert.NotNil(t, state.curSession)
-			assert.False(t, state.curSession.closed)
+			assert.NotNil(t, state.irc)
+			assert.False(t, state.irc.Closed())
 			assert.Equal(t, tt.expectedTGSentMsg, tgSess.sent)
 			assert.Equal(t, tt.expectedIRCResponse, conn.written)
 		})

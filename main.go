@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	irc "github.com/nchern/tgirc/pkg"
 	"github.com/nchern/tgirc/pkg/logger"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/zelenin/go-tdlib/client"
@@ -37,8 +37,6 @@ var (
 	}
 )
 
-var errAlreadyClosed = errors.New("connection closed")
-
 type config struct {
 	apiIDRaw    string
 	apiHash     string
@@ -54,7 +52,7 @@ func (c *config) apiID() int32 {
 }
 
 type Event struct {
-	newSession *session
+	newSession *irc.Session
 	ircUpdate  string
 	tgUpdate   client.Type
 }
@@ -328,7 +326,7 @@ func serveIRCAndWait(events chan *Event) error {
 			continue
 		}
 		logger.Info.Printf("irc incoming connection: %s", conn.RemoteAddr())
-		go handleConnection(events, newSession(conn))
+		go handleIRCConnection(events, irc.NewSession(conn))
 	}
 }
 
@@ -352,7 +350,7 @@ type TGSession interface {
 type State struct {
 	tg TGSession
 
-	irc *session
+	irc *irc.Session
 
 	// sentToTg collects all messages that were sent to Telegram
 	// by this service. This can be used to track if we need to relay an
@@ -367,7 +365,7 @@ func NewState(tgSession TGSession) *State {
 	return &State{
 		tg: tgSession,
 
-		irc: &session{closed: true},
+		irc: irc.NewEmptySession(),
 
 		sentToTg: map[int64]bool{},
 
@@ -443,7 +441,7 @@ func mainEventLoop(state *State, events chan *Event) {
 				state.irc.Close()
 			}
 		} else if ev.newSession != nil {
-			if state.irc != nil && !state.irc.closed {
+			if state.irc != nil && !state.irc.Closed() {
 				if err := state.irc.SendPrivMsg(
 					systemNick, state.tg.User().IRCNickname(),
 					"New inbound IRC connection. Disconnect this session"); err != nil {
@@ -456,112 +454,7 @@ func mainEventLoop(state *State, events chan *Event) {
 	}
 }
 
-type IRCMsg string
-
-func (s IRCMsg) Lines() []string { return strings.Split(string(s), "\n") }
-
-type session struct {
-	conn   net.Conn
-	reader *bufio.Reader
-
-	Nick     string
-	Username string
-
-	closed bool
-}
-
-func newSession(conn net.Conn) *session {
-	return &session{
-		conn: conn,
-		// Create a buffered reader to read input from the client
-		reader: bufio.NewReader(conn),
-
-		Nick:     "-?-",
-		Username: "-?-",
-	}
-}
-
-func (s *session) Read() (string, error) {
-	if s.closed {
-		return "", errAlreadyClosed
-	}
-	return s.reader.ReadString('\n')
-}
-
-func (s *session) SendPrivMsg(sender string, recepient string, text string) error {
-	msg := fmt.Sprintf(":%s PRIVMSG %s :%s", sender, recepient, text)
-	if _, err := s.Write(IRCMsg(msg)); err != nil {
-		return fmt.Errorf("SendPrivMsg : %w", err)
-	}
-	return nil
-}
-
-func (s *session) Writef(format string, a ...any) (int, error) {
-	return s.Write(IRCMsg(fmt.Sprintf(format, a...)))
-}
-
-func (s *session) Write(msg ...IRCMsg) (int, error) {
-	if s.closed {
-		return 0, errAlreadyClosed
-	}
-	count := 0
-	for _, m := range msg {
-		m += "\n"
-		logger.Info.Printf("%s sending %s", s, m)
-		c, err := s.conn.Write([]byte(m))
-		if err != nil {
-			return count, err
-		}
-		count += c
-	}
-	return count, nil
-}
-
-func (s *session) Close() {
-	if !s.closed {
-		s.conn.Close()
-		s.closed = true
-	}
-}
-
-func (s *session) String() string {
-	state := "open"
-	if s.closed {
-		state = "closed"
-	}
-	return fmt.Sprintf("%s %s!%s conn=%s",
-		s.conn.RemoteAddr(), s.Nick, s.Username, state)
-}
-
-type CMD string
-
-func (c CMD) is(command string) bool {
-	return strings.HasPrefix(string(c), command)
-}
-
-func (c CMD) part(i int) string {
-	toks := strings.Split(string(c), " ")
-	if len(toks) < i+1 {
-		return ""
-	}
-	return toks[i]
-}
-
-func (c CMD) tail() string {
-	s := []rune(c)
-	i, r := 0, ' '
-	for i, r = range s {
-		if i == 0 && r == ':' {
-			continue
-		}
-		if r == ':' {
-			break
-		}
-	}
-	return string(s[i+1:])
-}
-
-func handleConnection(events chan *Event, sess *session) {
+func handleIRCConnection(events chan *Event, sess *irc.Session) {
 	defer sess.Close()
 
 	events <- &Event{newSession: sess}
@@ -579,8 +472,8 @@ func handleConnection(events chan *Event, sess *session) {
 	}
 }
 
-func handleSystemReplies(state *State, cmd CMD) error {
-	if cmd.tail() == "stats" {
+func handleSystemReplies(state *State, cmd irc.CMD) error {
+	if cmd.Tail() == "stats" {
 		stats, err := state.tg.GetNetworkStatistics(
 			&client.GetNetworkStatisticsRequest{OnlyCurrent: true})
 		if err != nil {
@@ -619,18 +512,18 @@ func handleIRCJoinToChannels(state *State, channels ...string) error {
 			}
 			continue
 		}
-		replies := []IRCMsg{
-			IRCMsg(fmt.Sprintf(":%s JOIN %s", sess.Nick, cn)),
-			IRCMsg(fmt.Sprintf(":%s 332 %s %s :%s",
+		replies := []irc.Msg{
+			irc.Msg(fmt.Sprintf(":%s JOIN %s", sess.Nick, cn)),
+			irc.Msg(fmt.Sprintf(":%s 332 %s %s :%s",
 				serverName, sess.Nick, cn, chat.Topic())),
 		}
 		for _, m := range chat.Members() {
 			replies = append(replies,
-				IRCMsg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname())))
+				irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, m.IRCNickname())))
 		}
 		replies = append(replies,
-			IRCMsg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, "@"+systemNick)))
-		replies = append(replies, IRCMsg(fmt.Sprintf(":localhost 366 %s %s :End of /NAMES list.", sess.Nick, cn)))
+			irc.Msg(fmt.Sprintf(":%s 353 %s = %s :%s", serverName, sess.Nick, cn, "@"+systemNick)))
+		replies = append(replies, irc.Msg(fmt.Sprintf(":localhost 366 %s %s :End of /NAMES list.", sess.Nick, cn)))
 		if _, err := sess.Write(replies...); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
@@ -638,8 +531,8 @@ func handleIRCJoinToChannels(state *State, channels ...string) error {
 	return nil
 }
 
-func handleIRCPrivMessage(state *State, cmd CMD) error {
-	rcpt := cmd.part(1)
+func handleIRCPrivMessage(state *State, cmd irc.CMD) error {
+	rcpt := cmd.Part(1)
 	sess := state.irc
 	chat := state.joinedChats[rcpt]
 	if chat == nil {
@@ -653,7 +546,7 @@ func handleIRCPrivMessage(state *State, cmd CMD) error {
 	if err != nil {
 		return err
 	}
-	if _, err := state.sendToTG(chat.Chat.Id, cmd.tail()); err != nil {
+	if _, err := state.sendToTG(chat.Chat.Id, cmd.Tail()); err != nil {
 		return err
 	}
 	if ac.LastMessage != nil {
@@ -667,21 +560,20 @@ func handleIRCPrivMessage(state *State, cmd CMD) error {
 
 func handleIRCCommand(state *State, msg string) error {
 	sess := state.irc
-	command := CMD(strings.TrimSpace(msg))
+	command := irc.CMD(strings.TrimSpace(msg))
 	logger.Info.Printf("%s received: %s", sess, command)
 
 	// Session init sequence:
 	// C: USER username 0 * :Real Name
 	// C: NICK mynickname
 	// S: :irc.example.com 001 mynickname :Welcome to the IRC Network mynickname!username@host
-
-	if command.is("NICK") {
-		sess.Nick = command.part(1)
-	} else if command.is("USER") {
-		sess.Username = command.part(1)
+	if command.Is("NICK") {
+		sess.Nick = command.Part(1)
+	} else if command.Is("USER") {
+		sess.Username = command.Part(1)
 		rpl := fmt.Sprintf(":%s 001 %s :Welcome to the Telegram to IRC bridge %s!%s@localhost",
 			serverName, sess.Nick, sess.Nick, sess.Username)
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 		if err := state.irc.SendPrivMsg(
@@ -695,64 +587,64 @@ func handleIRCCommand(state *State, msg string) error {
 		// 		return err
 		// 	}
 		// }
-	} else if command.is("PING") {
+	} else if command.Is("PING") {
 		if _, err := sess.Write("PONG :pong"); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("CAP LS") {
+	} else if command.Is("CAP LS") {
 		rpl := ":" + serverName + " CAP * LS :"
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("CAP REQ") {
+	} else if command.Is("CAP REQ") {
 		// :irc.example.com CAP * NAK :multi-prefix
 		rpl := ":" + serverName + " CAP * NAK"
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("LIST") {
+	} else if command.Is("LIST") {
 		// 	obsolete in rfc281: ":localhost 321 mynickname Channel :Users  Name",
 		// 	":localhost 322 mynickname #general 42 :General discussion channel",
 		// 	":localhost 322 mynickname #random 15 :Random topics and fun",
 		// 	":localhost 322 mynickname #help 5 :Get help and support",
 		// 	":localhost 323 mynickname :End of /LIST",
 		chats := state.sortedChats()
-		replies := make([]IRCMsg, 0, len(chats))
+		replies := make([]irc.Msg, 0, len(chats))
 		for _, cht := range chats {
 			replies = append(replies,
-				IRCMsg(fmt.Sprintf(":%s 322 %s %s 0 :%s",
+				irc.Msg(fmt.Sprintf(":%s 322 %s %s 0 :%s",
 					serverName, state.irc.Nick, cht.ChannelName(), cht.Topic())))
 		}
 		replies = append(replies,
-			IRCMsg(fmt.Sprintf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick)))
+			irc.Msg(fmt.Sprintf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick)))
 		if _, err := sess.Write(replies...); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("MODE") {
-		channelName := command.part(1)
+	} else if command.Is("MODE") {
+		channelName := command.Part(1)
 		rpl := fmt.Sprintf(":%s MODE %s :", serverName, channelName)
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("CAP END") {
+	} else if command.Is("CAP END") {
 		logger.Info.Printf("%s %s", sess, command)
-	} else if command.is("QUIT") {
+	} else if command.Is("QUIT") {
 		logger.Info.Printf("%s disconnected", sess)
-	} else if command.is("PART ") {
-		channelName := command.part(1)
+	} else if command.Is("PART ") {
+		channelName := command.Part(1)
 		logger.Info.Printf("%s parted %s", sess, channelName)
 		// :alice PART #general
 		rpl := fmt.Sprintf(":%s PART %s", sess.Nick, channelName)
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-	} else if command.is("JOIN") {
-		channels := strings.Split(command.part(1), ",")
+	} else if command.Is("JOIN") {
+		channels := strings.Split(command.Part(1), ",")
 		if err := handleIRCJoinToChannels(state, channels...); err != nil {
 			return fmt.Errorf("%w: handleIRCJoinToChannels:", err)
 		}
-	} else if command.is("PRIVMSG") {
-		rcpt := command.part(1)
+	} else if command.Is("PRIVMSG") {
+		rcpt := command.Part(1)
 		if rcpt == systemNick {
 			return handleSystemReplies(state, command)
 		}
@@ -760,8 +652,8 @@ func handleIRCCommand(state *State, msg string) error {
 	} else {
 		logger.Info.Printf("%s Unknown command: %s", sess, command)
 		rpl := fmt.Sprintf(":%s 421 %s %s :Unknown or unsupported command",
-			serverName, sess.Nick, command.part(0))
-		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
+			serverName, sess.Nick, command.Part(0))
+		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 	}
