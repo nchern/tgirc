@@ -184,7 +184,7 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 			[]string{":localhost CAP * LS :\n"},
 			"CAP LS 302"},
 		{"mode",
-			[]string{":localhost MODE #channel :\n"},
+			[]string{":localhost 324 MODE -?- #channel +\n"},
 			"MODE #channel"},
 		{"user",
 			[]string{

@@ -380,6 +380,16 @@ func NewState(tgSession TGSession) *State {
 	}
 }
 
+func (s *State) hasChat(channelName string) bool {
+	// XXX: O(1) currently; fix it
+	for _, v := range s.chats {
+		if v.ChannelName() == channelName {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *State) sortedChats() []*tg.Chat {
 	chats := slices.Collect(maps.Values(s.chats))
 	sort.Slice(chats, func(i, j int) bool {
@@ -640,10 +650,14 @@ func handleIRCCommand(state *State, msg string) error {
 		}
 	} else if command.Is("MODE") {
 		// IRC clients request channel modes to sync local state
-		// FIXME: return correct reply: :server 324 nvc #<channel> +
-		// TODO: handle not exists clause: :server 403 nvc #general :No such channel
+		// IRC: 324 RPL_CHANNELMODEIS
 		channelName := command.Part(1)
-		rpl := fmt.Sprintf(":%s MODE %s :", serverName, channelName)
+		// minimum correct reply
+		rpl := fmt.Sprintf(":%s 324 MODE %s %s +", serverName, state.irc.Nick, channelName)
+		if !state.hasChat(channelName) {
+			// handle not exists clause
+			rpl = fmt.Sprintf("%s 403 %s %s :No such channel", serverName, state.irc.Nick, channelName)
+		}
 		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
