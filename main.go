@@ -252,12 +252,17 @@ func onNewMessage(state *State, m *client.Message) error {
 		chat.Type.ChatTypeType(), msg.Id, msg.FirstLine())
 
 	sender := msg.Sender.IRCNickname()
+	// works model when we map each user to a channel in IRC
+	// it mirrors nick given in irc in case the sender is myself
+	// so users are consistently shown by IRC client:
+	// <yourself>
+	// <recepient> ~ channel
 	if msg.Sender.Id == state.tg.User().Id {
 		sender = state.irc.Nick
 	}
-	channel := chat.ChannelName()
+	rcpt := chat.ChannelName()
 	for _, ln := range strings.Split(msg.Text(), "\n") {
-		if err := state.irc.SendPrivMsg(sender, channel, ln); err != nil {
+		if err := state.irc.SendPrivMsg(sender, rcpt, ln); err != nil {
 			return err
 		}
 	}
@@ -378,12 +383,12 @@ func (s *State) sortedChats() []*tg.Chat {
 	chats := slices.Collect(maps.Values(s.chats))
 	sort.Slice(chats, func(i, j int) bool {
 		if chats[i].LastMessage == nil {
-			return true
-		}
-		if chats[j].LastMessage == nil {
 			return false
 		}
-		return chats[i].LastMessage.Date < chats[j].LastMessage.Date
+		if chats[j].LastMessage == nil {
+			return true
+		}
+		return chats[i].LastMessage.Date > chats[j].LastMessage.Date
 	})
 	return chats
 }
@@ -558,6 +563,21 @@ func handleIRCPrivMessage(state *State, cmd irc.CMD) error {
 	return nil
 }
 
+func autojoinTopContacts(state *State) error {
+	const n = 10
+	chats := state.sortedChats()
+	if len(chats) > n {
+		chats = chats[:n]
+	}
+	logger.Debug.Printf("chats: %d", len(chats))
+	for _, ch := range chats {
+		if err := handleIRCJoinToChannels(state, ch.ChannelName()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func handleIRCCommand(state *State, msg string) error {
 	sess := state.irc
 	command := irc.CMD(strings.TrimSpace(msg))
@@ -581,12 +601,9 @@ func handleIRCCommand(state *State, msg string) error {
 			return fmt.Errorf("write to connection : %w", err)
 		}
 		// TODO: implement auto-join on connection
-		// logger.Debug.Printf("chats: %d", len(state.chats))
-		// for _, ch := range state.chats {
-		// 	if err := handleIRCJoinToChannels(state, ch.ChannelName()); err != nil {
-		// 		return err
-		// 	}
-		// }
+		if err := autojoinTopContacts(state); err != nil {
+			return err
+		}
 	} else if command.Is("PING") {
 		if _, err := sess.Write("PONG :pong"); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
@@ -621,6 +638,9 @@ func handleIRCCommand(state *State, msg string) error {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 	} else if command.Is("MODE") {
+		// IRC clients request channel modes to sync local state
+		// FIXME: return correct reply: :server 324 nvc #<channel> +
+		// TODO: handle not exists clause: :server 403 nvc #general :No such channel
 		channelName := command.Part(1)
 		rpl := fmt.Sprintf(":%s MODE %s :", serverName, channelName)
 		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
