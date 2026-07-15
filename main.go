@@ -316,6 +316,12 @@ func onNewMessage(state *State, m *client.Message) error {
 		sender = state.irc.Nick
 	}
 	rcpt := chat.ChannelName()
+	if !state.isJoined(chat) {
+		// join explicitly if not already jonied
+		if err := handleIRCJoinToChannels(state, chat.ChannelName()); err != nil {
+			return err
+		}
+	}
 	for _, ln := range strings.Split(msg.Text(), "\n") {
 		if err := state.irc.SendPrivMsg(sender, rcpt, ln); err != nil {
 			return err
@@ -443,6 +449,10 @@ func NewState(tgSession TGSession) *State {
 		chats:       map[int64]*tg.Chat{},
 		joinedChats: map[string]*tg.Chat{},
 	}
+}
+
+func (s *State) isJoined(chat *tg.Chat) bool {
+	return s.joinedChats[chat.ChannelName()] != nil
 }
 
 func (s *State) hasChat(channelName string) bool {
