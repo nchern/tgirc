@@ -1,4 +1,4 @@
-OUT=tgirc
+OUT=./bin/tgirc
 GO_BUILD_FLAGS ?= -tags libtdjson
 TDLIB_RPATH_LDFLAGS ?= -Wl,-rpath,/usr/local/lib
 override export CGO_LDFLAGS := $(strip $(CGO_LDFLAGS) $(TDLIB_RPATH_LDFLAGS))
@@ -26,7 +26,7 @@ vet:
 
 .PHONY: build
 build: vet
-	@go build $(GO_BUILD_FLAGS) -o bin/$(OUT) .
+	@go build $(GO_BUILD_FLAGS) -o $(OUT) .
 
 
 .PHONY: install

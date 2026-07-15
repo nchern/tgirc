@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -45,7 +48,6 @@ type config struct {
 }
 
 func (c *config) apiID() int32 {
-	logger.Debug.Println(c.apiIDRaw)
 	v, err := strconv.ParseInt(c.apiIDRaw, 10, 32)
 	dieIf(err)
 	return int32(v)
@@ -265,8 +267,10 @@ func onNewMessage(state *State, m *client.Message) error {
 }
 
 func main() {
-	events := make(chan *Event)
+	logger.Info.Printf("starting tg app_id=%s phone=%s app_cache_dir=%s",
+		cfg.apiIDRaw, cfg.phoneNumber, cfg.appCacheDir)
 
+	events := make(chan *Event)
 	tgClient, me, err := startTg(events)
 	dieIf(err)
 
@@ -370,6 +374,20 @@ func NewState(tgSession TGSession) *State {
 		chats:       map[int64]*tg.Chat{},
 		joinedChats: map[string]*tg.Chat{},
 	}
+}
+
+func (s *State) sortedChats() []*tg.Chat {
+	chats := slices.Collect(maps.Values(s.chats))
+	sort.Slice(chats, func(i, j int) bool {
+		if chats[i].LastMessage == nil {
+			return true
+		}
+		if chats[j].LastMessage == nil {
+			return false
+		}
+		return chats[i].LastMessage.Date < chats[j].LastMessage.Date
+	})
+	return chats
 }
 
 func (s *State) registerChat(chat *tg.Chat) {
@@ -698,8 +716,9 @@ func handleIRCCommand(state *State, msg string) error {
 		// 	":localhost 322 mynickname #random 15 :Random topics and fun",
 		// 	":localhost 322 mynickname #help 5 :Get help and support",
 		// 	":localhost 323 mynickname :End of /LIST",
-		replies := make([]IRCMsg, 0, len(state.chats))
-		for _, cht := range state.chats {
+		chats := state.sortedChats()
+		replies := make([]IRCMsg, 0, len(chats))
+		for _, cht := range chats {
 			replies = append(replies,
 				IRCMsg(fmt.Sprintf(":%s 322 %s %s 0 :%s",
 					serverName, state.curSession.Nick, cht.ChannelName(), cht.Topic())))
