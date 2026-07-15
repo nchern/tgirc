@@ -195,7 +195,7 @@ func onDeleteMessages(state *State, up *client.UpdateDeleteMessages) error {
 		return err
 	}
 	s := fmt.Sprintf("%d message(s) got deleted from chat [%s]", len(up.MessageIds), chat.Title)
-	return state.curSession.SendPrivMsg(systemNick, state.tg.User().IRCNickname(), s)
+	return state.irc.SendPrivMsg(systemNick, state.tg.User().IRCNickname(), s)
 }
 
 func onUpdate(state *State, update client.Type) error {
@@ -255,11 +255,11 @@ func onNewMessage(state *State, m *client.Message) error {
 
 	sender := msg.Sender.IRCNickname()
 	if msg.Sender.Id == state.tg.User().Id {
-		sender = state.curSession.Nick
+		sender = state.irc.Nick
 	}
 	channel := chat.ChannelName()
 	for _, ln := range strings.Split(msg.Text(), "\n") {
-		if err := state.curSession.SendPrivMsg(sender, channel, ln); err != nil {
+		if err := state.irc.SendPrivMsg(sender, channel, ln); err != nil {
 			return err
 		}
 	}
@@ -352,7 +352,7 @@ type TGSession interface {
 type State struct {
 	tg TGSession
 
-	curSession *session
+	irc *session
 
 	// sentToTg collects all messages that were sent to Telegram
 	// by this service. This can be used to track if we need to relay an
@@ -367,7 +367,7 @@ func NewState(tgSession TGSession) *State {
 	return &State{
 		tg: tgSession,
 
-		curSession: &session{closed: true},
+		irc: &session{closed: true},
 
 		sentToTg: map[int64]bool{},
 
@@ -438,20 +438,20 @@ func mainEventLoop(state *State, events chan *Event) {
 			}
 		} else if ev.ircUpdate != "" {
 			if err := handleIRCCommand(state, ev.ircUpdate); err != nil {
-				logger.Error.Printf("%s handleCommand: %T %s", state.curSession, err, err)
+				logger.Error.Printf("%s handleCommand: %T %s", state.irc, err, err)
 				// need to close session
-				state.curSession.Close()
+				state.irc.Close()
 			}
 		} else if ev.newSession != nil {
-			if state.curSession != nil && !state.curSession.closed {
-				if err := state.curSession.SendPrivMsg(
+			if state.irc != nil && !state.irc.closed {
+				if err := state.irc.SendPrivMsg(
 					systemNick, state.tg.User().IRCNickname(),
 					"New inbound IRC connection. Disconnect this session"); err != nil {
-					logger.Error.Printf("%s %s", state.curSession, err)
+					logger.Error.Printf("%s %s", state.irc, err)
 				}
-				state.curSession.Close()
+				state.irc.Close()
 			}
-			state.curSession = ev.newSession
+			state.irc = ev.newSession
 		}
 	}
 }
@@ -593,14 +593,14 @@ func handleSystemReplies(state *State, cmd CMD) error {
 				reply = fmt.Sprintf("network_type=%s; sent_bytes=%d; received_bytes=%d",
 					ns.NetworkType.NetworkTypeType(), ns.SentBytes, ns.ReceivedBytes)
 			}
-			if err := state.curSession.SendPrivMsg(
+			if err := state.irc.SendPrivMsg(
 				systemNick, state.tg.User().IRCNickname(), reply); err != nil {
 				return fmt.Errorf("handleSystemReplies : %w", err)
 			}
 		}
 		return nil
 	}
-	if err := state.curSession.SendPrivMsg(
+	if err := state.irc.SendPrivMsg(
 		systemNick, state.tg.User().IRCNickname(), "System is up and running."); err != nil {
 		return fmt.Errorf("handleSystemReplies : %w", err)
 	}
@@ -608,13 +608,13 @@ func handleSystemReplies(state *State, cmd CMD) error {
 }
 
 func handleIRCJoinToChannels(state *State, channels ...string) error {
-	sess := state.curSession
+	sess := state.irc
 	for _, cn := range channels {
 		cn = strings.TrimSpace(cn)
 		chat := state.joinChatByName(cn)
 		if chat == nil {
 			if _, err := sess.Writef(":%s 403 %s %s :No such channel",
-				serverName, state.curSession.Nick, cn); err != nil {
+				serverName, state.irc.Nick, cn); err != nil {
 				return fmt.Errorf("%w: write to connection:", err)
 			}
 			continue
@@ -640,11 +640,11 @@ func handleIRCJoinToChannels(state *State, channels ...string) error {
 
 func handleIRCPrivMessage(state *State, cmd CMD) error {
 	rcpt := cmd.part(1)
-	sess := state.curSession
+	sess := state.irc
 	chat := state.joinedChats[rcpt]
 	if chat == nil {
 		if _, err := sess.Writef(":localhost 403 %s %s :No such recepient",
-			state.curSession.Nick, rcpt); err != nil {
+			state.irc.Nick, rcpt); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 		return nil
@@ -666,7 +666,7 @@ func handleIRCPrivMessage(state *State, cmd CMD) error {
 }
 
 func handleIRCCommand(state *State, msg string) error {
-	sess := state.curSession
+	sess := state.irc
 	command := CMD(strings.TrimSpace(msg))
 	logger.Info.Printf("%s received: %s", sess, command)
 
@@ -684,7 +684,7 @@ func handleIRCCommand(state *State, msg string) error {
 		if _, err := sess.Write(IRCMsg(rpl)); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
-		if err := state.curSession.SendPrivMsg(
+		if err := state.irc.SendPrivMsg(
 			systemNick, state.tg.User().IRCNickname(), "Hello!"); err != nil {
 			return fmt.Errorf("write to connection : %w", err)
 		}
@@ -721,10 +721,10 @@ func handleIRCCommand(state *State, msg string) error {
 		for _, cht := range chats {
 			replies = append(replies,
 				IRCMsg(fmt.Sprintf(":%s 322 %s %s 0 :%s",
-					serverName, state.curSession.Nick, cht.ChannelName(), cht.Topic())))
+					serverName, state.irc.Nick, cht.ChannelName(), cht.Topic())))
 		}
 		replies = append(replies,
-			IRCMsg(fmt.Sprintf(":%s 323 %s :End of /LIST", serverName, state.curSession.Nick)))
+			IRCMsg(fmt.Sprintf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick)))
 		if _, err := sess.Write(replies...); err != nil {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
