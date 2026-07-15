@@ -2,12 +2,12 @@ package main
 
 import (
 	"io"
+	"log/slog"
 	"net"
 	"testing"
 	"time"
 
 	irc "github.com/nchern/tgirc/pkg"
-	"github.com/nchern/tgirc/pkg/logger"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/stretchr/testify/assert"
 	"github.com/zelenin/go-tdlib/client"
@@ -38,7 +38,7 @@ func newMockConn() *mockNetConn {
 
 // Read reads data from the connection.
 func (c *mockNetConn) Read(b []byte) (n int, err error) {
-	logger.Debug.Println("Read: ", len(b))
+	slog.Debug("Read:", "n", len(b))
 	if c.readIdx >= len(c.incoming) {
 		return 0, io.EOF
 	}

@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"maps"
 	"net"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"strings"
 
 	irc "github.com/nchern/tgirc/pkg"
-	"github.com/nchern/tgirc/pkg/logger"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/zelenin/go-tdlib/client"
 )
@@ -61,6 +61,49 @@ func slugify(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, " ", "_"),
 		"\t", "_")
 }
+
+func init() {
+	base := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelDebug,
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if isTimestampDisabled() && a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})
+	slog.SetDefault(slog.New(errorTypeHandler{next: base}))
+}
+
+type errorTypeHandler struct {
+	next slog.Handler
+}
+
+func (h errorTypeHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.next.Enabled(ctx, level)
+}
+
+func (h errorTypeHandler) Handle(ctx context.Context, r slog.Record) error {
+	rr := r.Clone()
+	r.Attrs(func(a slog.Attr) bool {
+		if err, ok := a.Value.Any().(error); ok {
+			rr.AddAttrs(slog.String(a.Key+"_type", fmt.Sprintf("%T", err)))
+		}
+		return true
+	})
+	return h.next.Handle(ctx, rr)
+}
+
+func (h errorTypeHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return errorTypeHandler{next: h.next.WithAttrs(attrs)}
+}
+
+func (h errorTypeHandler) WithGroup(name string) slog.Handler {
+	return errorTypeHandler{next: h.next.WithGroup(name)}
+}
+
+func isTimestampDisabled() bool { return os.Getenv("LOG_DISABLE_TIMESTAMP") != "" }
 
 func startTg(events chan<- *Event) (*client.Client, *client.User, error) {
 	params := &client.SetTdlibParametersRequest{
@@ -108,7 +151,7 @@ func startTg(events chan<- *Event) (*client.Client, *client.User, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	logger.Info.Printf("TDLib version: %s", opt.(*client.OptionValueString).Value)
+	slog.Info("TDLib version:", "version", opt.(*client.OptionValueString).Value)
 
 	me, err := tg.GetMe()
 	if err != nil {
@@ -134,8 +177,10 @@ func onUpdateChatLastMessage(state *State, up *client.UpdateChatLastMessage) err
 	if err := onNewChat(state, chat); err != nil {
 		return err
 	}
-	fmt.Printf("onUpdateChatLastMessage: chat_id=%d last_message=%v \n",
-		up.ChatId, chat.LastMessage != nil)
+	slog.Debug("onUpdateChatLastMessage:",
+		"chat_id", up.ChatId,
+		"last_message", chat.LastMessage != nil,
+	)
 	if chat.LastMessage != nil {
 		state.sentToTg[chat.LastMessage.Id] = true
 	}
@@ -197,11 +242,14 @@ func onDeleteMessages(state *State, up *client.UpdateDeleteMessages) error {
 }
 
 func onUpdate(state *State, update client.Type) error {
-	logger.Debug.Printf("onUpdate: %s %s", update.GetClass(), update.GetType())
+	slog.Debug("onUpdate:",
+		"class", update.GetClass(),
+		"type", update.GetType(),
+	)
 
 	switch up := update.(type) {
 	case *client.UpdateUserStatus:
-		logger.Info.Printf("onUpdate: new status: %s", up.Status.UserStatusType())
+		slog.Info("onUpdate: new status:", "status", up.Status.UserStatusType())
 	case *client.UpdateNewChat:
 		if err := onNewChat(state, tg.NewChat(up.Chat)); err != nil {
 			return fmt.Errorf("onUpdateNewChat : %w", err)
@@ -247,9 +295,15 @@ func onNewMessage(state *State, m *client.Message) error {
 		}
 		msg.Sender = u
 	}
-	fmt.Printf("incoming msg: user_id=%d chat_title=%s irc_nick=%s chat_id=%d chat_type=%s message_id=%d %s\n",
-		msg.SenderID(), msg.Chat.Title, msg.Sender.IRCNickname(chat), msg.ChatId,
-		chat.Type.ChatTypeType(), msg.Id, msg.FirstLine())
+	slog.Debug("incoming msg:",
+		"user_id", msg.SenderID(),
+		"chat_title", msg.Chat.Title,
+		"irc_nick", msg.Sender.IRCNickname(chat),
+		"chat_id", msg.ChatId,
+		"chat_type", chat.Type.ChatTypeType(),
+		"message_id", msg.Id,
+		"first_line", msg.FirstLine(),
+	)
 
 	sender := msg.Sender.IRCNickname(chat)
 
@@ -271,14 +325,21 @@ func onNewMessage(state *State, m *client.Message) error {
 }
 
 func main() {
-	logger.Info.Printf("starting tg app_id=%s phone=%s app_cache_dir=%s",
-		cfg.apiIDRaw, cfg.phoneNumber, cfg.appCacheDir)
+	slog.Info("starting tg",
+		"app_id", cfg.apiIDRaw,
+		"phone", cfg.phoneNumber,
+		"app_cache_dir", cfg.appCacheDir,
+	)
 
 	events := make(chan *Event)
 	tgClient, me, err := startTg(events)
 	dieIf(err)
 
-	logger.Info.Printf("Me: %s %s [%v]", me.FirstName, me.LastName, me.Usernames)
+	slog.Info("Me:",
+		"first_name", me.FirstName,
+		"last_name", me.LastName,
+		"usernames", me.Usernames,
+	)
 
 	state := NewState(tg.NewSession(tgClient, tg.NewUser(me)))
 
@@ -298,7 +359,9 @@ func populateChats(state *State) error {
 	for _, id := range chatIDs.ChatIds {
 		chat, err := state.tg.GetChat(id)
 		if err != nil {
-			logger.Error.Printf("populateChats.GetChat: %s", err)
+			slog.Error("populateChats.GetChat:",
+				"err", err,
+			)
 			continue
 		}
 		if !chat.Supported() {
@@ -324,14 +387,16 @@ func serveIRCAndWait(events chan *Event) error {
 	}
 	defer listener.Close()
 
-	logger.Info.Printf("IRC server started on port 6667")
+	slog.Info("IRC server started on port 6667")
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logger.Error.Printf("Error accepting connection: %s", err)
+			slog.Error("Error accepting connection:",
+				"err", err,
+			)
 			continue
 		}
-		logger.Info.Printf("irc incoming connection: %s", conn.RemoteAddr())
+		slog.Info("irc incoming connection:", "remote_addr", conn.RemoteAddr())
 		go handleIRCConnection(events, irc.NewSession(conn))
 	}
 }
@@ -405,19 +470,31 @@ func (s *State) sortedChats() []*tg.Chat {
 }
 
 func (s *State) registerChat(chat *tg.Chat) {
-	logger.Debug.Printf("registerChat chat_id=%d chat_title=%s chat_type=%s slugged_title=%s",
-		chat.Id, chat.Title, chat.Type.ChatTypeType(), slugify(chat.Title))
+	slog.Debug("registerChat",
+		"chat_id", chat.Id,
+		"chat_title", chat.Title,
+		"chat_type", chat.Type.ChatTypeType(),
+		"slugged_title", slugify(chat.Title),
+	)
 	if !chat.Supported() {
-		logger.Debug.Printf("registerChat: skip unsupported chat_id=%d chat_title=%s", chat.Id, chat.Title)
+		slog.Debug("registerChat: skip unsupported",
+			"chat_id", chat.Id,
+			"chat_title", chat.Title,
+		)
 		return
 	}
 	if strings.HasSuffix(strings.ToLower(chat.Title), "chat") {
-		logger.Debug.Printf("registerChat: skip groups chat_id=%d chat_title=%s", chat.Id, chat.Title)
+		slog.Debug("registerChat: skip groups",
+			"chat_id", chat.Id,
+			"chat_title", chat.Title,
+		)
 		return
 	}
 	if s.chats[chat.Id] != nil {
-		logger.Debug.Printf("registerChat chat_id=%d slugged_title=%s already-registered",
-			chat.Id, slugify(chat.Title))
+		slog.Debug("registerChat already-registered",
+			"chat_id", chat.Id,
+			"slugged_title", slugify(chat.Title),
+		)
 	}
 	s.chats[chat.Id] = chat
 }
@@ -448,11 +525,16 @@ func mainEventLoop(state *State, events chan *Event) {
 	for ev := range events {
 		if ev.tgUpdate != nil {
 			if err := onUpdate(state, ev.tgUpdate); err != nil {
-				logger.Error.Printf("onUpdate: %T %s", err, err)
+				slog.Error("onUpdate:",
+					"err", err,
+				)
 			}
 		} else if ev.ircUpdate != "" {
 			if err := handleIRCCommand(state, ev.ircUpdate); err != nil {
-				logger.Error.Printf("%s handleCommand: %T %s", state.irc, err, err)
+				slog.Error("handleCommand:",
+					"session", state.irc,
+					"err", err,
+				)
 				// need to close session
 				state.irc.Close()
 			}
@@ -461,7 +543,9 @@ func mainEventLoop(state *State, events chan *Event) {
 				if err := state.irc.SendPrivMsg(
 					systemNick, state.tg.User().IRCNickname(nil),
 					"New inbound IRC connection. Disconnect this session"); err != nil {
-					logger.Error.Printf("%s %s", state.irc, err)
+					slog.Error(fmt.Sprintf("%s %s", state.irc, err),
+						"err", err,
+					)
 				}
 				state.irc.Close()
 			}
@@ -478,10 +562,13 @@ func handleIRCConnection(events chan *Event, sess *irc.Session) {
 		rawMsg, err := sess.Read()
 		if err != nil {
 			if err == io.EOF {
-				logger.Info.Printf("%s disconnected", sess)
+				slog.Info("disconnected", "session", sess)
 				return
 			}
-			logger.Error.Printf("%s read from connection: %s", sess, err)
+			slog.Error("read from connection:",
+				"session", sess,
+				"err", err,
+			)
 			return
 		}
 		events <- &Event{ircUpdate: rawMsg}
@@ -568,7 +655,9 @@ func handleIRCPrivMessage(state *State, cmd irc.CMD) error {
 	if ac.LastMessage != nil {
 		if err := state.tg.ViewMessages(chat.Id, ac.LastMessage.Id); err != nil {
 			// should not terminate this request
-			logger.Error.Printf("tg.ViewMessages %e", err)
+			slog.Error("tg.ViewMessages",
+				"err", err,
+			)
 		}
 	}
 	return nil
@@ -580,7 +669,7 @@ func autojoinTopContacts(state *State) error {
 	if len(chats) > n {
 		chats = chats[:n]
 	}
-	logger.Debug.Printf("chats: %d", len(chats))
+	slog.Debug("chats:", "count", len(chats))
 	for _, ch := range chats {
 		if err := handleIRCJoinToChannels(state, ch.ChannelName()); err != nil {
 			return err
@@ -592,7 +681,7 @@ func autojoinTopContacts(state *State) error {
 func handleIRCCommand(state *State, msg string) error {
 	sess := state.irc
 	command := irc.CMD(strings.TrimSpace(msg))
-	logger.Info.Printf("%s received: %s", sess, command)
+	slog.Info("received:", "session", sess, "command", command)
 
 	// Session init sequence:
 	// C: USER username 0 * :Real Name
@@ -662,12 +751,12 @@ func handleIRCCommand(state *State, msg string) error {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 	} else if command.Is("CAP END") {
-		logger.Info.Printf("%s %s", sess, command)
+		slog.Info(fmt.Sprintf("%s %s", sess, command))
 	} else if command.Is("QUIT") {
-		logger.Info.Printf("%s disconnected", sess)
+		slog.Info("disconnected", "session", sess)
 	} else if command.Is("PART ") {
 		channelName := command.Part(1)
-		logger.Info.Printf("%s parted %s", sess, channelName)
+		slog.Info("parted", "session", sess, "channel_name", channelName)
 		// :alice PART #general
 		rpl := fmt.Sprintf(":%s PART %s", sess.Nick, channelName)
 		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
@@ -685,7 +774,7 @@ func handleIRCCommand(state *State, msg string) error {
 		}
 		return handleIRCPrivMessage(state, command)
 	} else {
-		logger.Info.Printf("%s Unknown command: %s", sess, command)
+		slog.Info("Unknown command:", "session", sess, "command", command)
 		rpl := fmt.Sprintf(":%s 421 %s %s :Unknown or unsupported command",
 			serverName, sess.Nick, command.Part(0))
 		if _, err := sess.Write(irc.Msg(rpl)); err != nil {
@@ -697,6 +786,9 @@ func handleIRCCommand(state *State, msg string) error {
 
 func dieIf(err error) {
 	if err != nil {
-		log.Fatalf("fatal: %T '%s'", err, err)
+		slog.Error("fatal:",
+			"err", err,
+		)
+		os.Exit(1)
 	}
 }

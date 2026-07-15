@@ -4,10 +4,9 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"strings"
-
-	"github.com/nchern/tgirc/pkg/logger"
 )
 
 // ErrAlreadyClosed gets returned on attempt to use a sessions with closed the
@@ -77,7 +76,7 @@ func (s *Session) Write(msg ...Msg) (int, error) {
 	count := 0
 	for _, m := range msg {
 		m += "\n"
-		logger.Info.Printf("%s sending %s", s, m)
+		slog.Info("sending", "session", s, "message", m)
 		c, err := s.conn.Write([]byte(m))
 		if err != nil {
 			return count, err
