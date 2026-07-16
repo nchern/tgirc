@@ -232,6 +232,10 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 			[]string{":localhost 324 MODE -?- #test-chat +\n"},
 			"MODE #test-chat",
 			defaultChats},
+		{"mode unknown channel",
+			[]string{"localhost 403 -?- #missing :No such channel\n"},
+			"MODE #missing",
+			defaultChats},
 		{"list without filter",
 			[]string{
 				":localhost 322 -?- #narrow_alpha 0 :narrow alpha (chatTypePrivate)\n",
