@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	irc "github.com/nchern/tgirc/pkg"
+	"github.com/nchern/tgirc/pkg/irc"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/stretchr/testify/assert"
 	"github.com/zelenin/go-tdlib/client"

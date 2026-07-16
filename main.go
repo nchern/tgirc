@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	irc "github.com/nchern/tgirc/pkg"
+	"github.com/nchern/tgirc/pkg/irc"
 	"github.com/nchern/tgirc/pkg/tg"
 	"github.com/zelenin/go-tdlib/client"
 )
