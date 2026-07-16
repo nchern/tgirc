@@ -668,6 +668,10 @@ func handleIRCPrivMessage(state *State, cmd irc.CMD) error {
 		return err
 	}
 	if ac.LastMessage != nil {
+		// Mark messages until last message in the chat as viewed
+		// WHY: IRC does not have notifications when a message gets viewed
+		// hence an assumption: when a user sends message from IRC to telegram,
+		// they should have seen all the messages before this one
 		if err := state.tg.ViewMessages(chat.Id, ac.LastMessage.Id); err != nil {
 			// should not terminate this request
 			slog.Error("tg.ViewMessages",
