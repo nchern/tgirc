@@ -168,33 +168,72 @@ func playEventsOnMainLoop(conn net.Conn, state *State, events ...*Event) {
 	mainEventLoop(state, in)
 }
 
-func mkChat() *tg.Chat {
+func mkChat(id int64, title string, lastMessageDate int32) *tg.Chat {
 	tp := &client.ChatTypePrivate{}
 	tp.Type = client.TypeChatTypePrivate
+	chat := &client.Chat{Id: id, Title: title, Type: tp}
+	if lastMessageDate > 0 {
+		chat.LastMessage = &client.Message{Date: lastMessageDate}
+	}
 	return &tg.Chat{
-		Chat: &client.Chat{Id: 1, Title: "test-chat", Type: tp},
+		Chat: chat,
 	}
 }
 
 func TestHandleIRCEventsShouldProcess(t *testing.T) {
-	chat := mkChat()
+	defaultChats := []*tg.Chat{mkChat(1, "test-chat", 0)}
+	listChats := []*tg.Chat{
+		mkChat(11, "narrow alpha", 3),
+		mkChat(12, "broad beta", 2),
+		mkChat(13, "narrow gamma", 1),
+	}
 	var tests = []struct {
 		name     string
 		expected []string
 		given    string
+		chats    []*tg.Chat
 	}{
 		{"unsupported command",
 			[]string{":localhost 421 -?- abc :Unknown or unsupported command\n"},
-			"abc"},
+			"abc",
+			defaultChats},
 		{"ping",
 			[]string{"PONG :pong\n"},
-			"PING localhost"},
+			"PING localhost",
+			defaultChats},
 		{"cap ls",
 			[]string{":localhost CAP * LS :\n"},
-			"CAP LS 302"},
+			"CAP LS 302",
+			defaultChats},
 		{"mode",
 			[]string{":localhost 324 MODE -?- #test-chat +\n"},
-			"MODE #test-chat"},
+			"MODE #test-chat",
+			defaultChats},
+		{"list without filter",
+			[]string{
+				":localhost 322 -?- #narrow_alpha 0 :narrow alpha (chatTypePrivate)\n",
+				":localhost 322 -?- #broad_beta 0 :broad beta (chatTypePrivate)\n",
+				":localhost 322 -?- #narrow_gamma 0 :narrow gamma (chatTypePrivate)\n",
+				":localhost 323 -?- :End of /LIST\n",
+			},
+			"LIST",
+			listChats},
+		{"list invalid filter",
+			[]string{":localhost 461 -?- LIST :Invalid filter\n"},
+			"LIST [",
+			listChats},
+		{"list with filter",
+			[]string{
+				":localhost 322 -?- #narrow_alpha 0 :narrow alpha (chatTypePrivate)\n",
+				":localhost 322 -?- #narrow_gamma 0 :narrow gamma (chatTypePrivate)\n",
+				":localhost 323 -?- :End of /LIST\n",
+			},
+			"LIST narrow",
+			listChats},
+		{"list with no matches",
+			[]string{":localhost 323 -?- :End of /LIST\n"},
+			"LIST missing",
+			listChats},
 		{"user",
 			[]string{
 				":localhost 001 -?- :Welcome to the Telegram to IRC bridge -?-!usr@localhost\n",
@@ -204,23 +243,29 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 				":localhost 353 -?- = #test-chat :@SysServ\n",
 				":localhost 366 -?- #test-chat :End of /NAMES list.\n",
 			},
-			"USER usr 0 * :usr"},
+			"USER usr 0 * :usr",
+			defaultChats},
 		{"private message to Sys user",
 			[]string{":SysServ PRIVMSG 42 :System is up and running.\n"},
-			"PRIVMSG SysServ :test"},
+			"PRIVMSG SysServ :test",
+			defaultChats},
 		{"part",
 			[]string{":-?- PART #channel-name\n"},
-			"PART #channel-name :WeeChat 4.2.1"},
+			"PART #channel-name :WeeChat 4.2.1",
+			defaultChats},
 		{"cap req",
 			[]string{":localhost CAP * NAK\n"},
-			"CAP REQ :"},
+			"CAP REQ :",
+			defaultChats},
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			state := NewState(newMockTGSession())
 
-			state.chats[chat.Id] = chat
+			for _, ch := range tt.chats {
+				state.chats[ch.Id] = ch
+			}
 			conn := newMockConn()
 
 			playEventsOnMainLoop(conn, state,
