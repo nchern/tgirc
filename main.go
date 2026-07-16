@@ -674,11 +674,12 @@ func handleIRCPrivMessage(state *State, cmd irc.CMD) error {
 	return nil
 }
 
+const maxAutojoinChatsCount = 30
+
 func autojoinTopContacts(state *State) error {
-	const n = 10
 	chats := state.sortedChats()
-	if len(chats) > n {
-		chats = chats[:n]
+	if len(chats) > maxAutojoinChatsCount {
+		chats = chats[:maxAutojoinChatsCount]
 	}
 	slog.Debug("chats:", "count", len(chats))
 	for _, ch := range chats {
