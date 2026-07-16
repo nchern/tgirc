@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -730,6 +731,16 @@ func handleIRCCommand(state *State, msg string) error {
 			return fmt.Errorf("%w: write to connection:", err)
 		}
 	} else if command.Is("LIST") {
+		term := command.Part(1)
+		termRx, err := regexp.Compile(term)
+		if err != nil {
+			slog.Error("handleIRCCommand", "err", err)
+			if _, err := sess.Write(irc.Msgf(":%s 461 %s LIST :Invalid filter",
+				serverName, sess.Nick)); err != nil {
+				return fmt.Errorf("%w: write to connection:", err)
+			}
+			return nil
+		}
 		// 	obsolete in rfc281: ":localhost 321 mynickname Channel :Users  Name",
 		// 	":localhost 322 mynickname #general 42 :General discussion channel",
 		// 	":localhost 322 mynickname #random 15 :Random topics and fun",
@@ -738,9 +749,11 @@ func handleIRCCommand(state *State, msg string) error {
 		chats := state.sortedChats()
 		replies := make([]irc.Msg, 0, len(chats))
 		for _, cht := range chats {
-			replies = append(replies,
-				irc.Msgf(":%s 322 %s %s 0 :%s",
-					serverName, state.irc.Nick, cht.ChannelName(), cht.Topic()))
+			if termRx.MatchString(cht.NormalizedName()) {
+				replies = append(replies,
+					irc.Msgf(":%s 322 %s %s 0 :%s",
+						serverName, state.irc.Nick, cht.ChannelName(), cht.Topic()))
+			}
 		}
 		replies = append(replies,
 			irc.Msgf(":%s 323 %s :End of /LIST", serverName, state.irc.Nick))
