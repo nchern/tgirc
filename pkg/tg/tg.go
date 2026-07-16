@@ -230,6 +230,7 @@ func NewChat(chat *client.Chat) *Chat {
 	return &Chat{Chat: chat}
 }
 
+// Members returns chat members
 func (ch *Chat) Members() []*User {
 	return ch.members
 }

@@ -469,6 +469,10 @@ func (s *State) hasChat(channelName string) bool {
 func (s *State) sortedChats() []*tg.Chat {
 	chats := slices.Collect(maps.Values(s.chats))
 	sort.Slice(chats, func(i, j int) bool {
+		// push "Saved messages" chat to the top
+		if len(chats[j].Members()) == 1 && chats[j].Members()[0].Id == s.tg.User().Id {
+			return false
+		}
 		if chats[i].LastMessage == nil {
 			return false
 		}
@@ -681,7 +685,6 @@ func autojoinTopContacts(state *State) error {
 	if len(chats) > maxAutojoinChatsCount {
 		chats = chats[:maxAutojoinChatsCount]
 	}
-	slog.Debug("chats:", "count", len(chats))
 	for _, ch := range chats {
 		if err := handleIRCJoinToChannels(state, ch.ChannelName()); err != nil {
 			return err
