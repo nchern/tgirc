@@ -92,6 +92,7 @@ func (c *mockNetConn) SetWriteDeadline(t time.Time) error {
 
 type mockTGSession struct {
 	chats map[int64]*tg.Chat
+	stats *client.NetworkStatistics
 
 	sent []*client.Message
 }
@@ -99,7 +100,16 @@ type mockTGSession struct {
 func newMockTGSession() *mockTGSession {
 	return &mockTGSession{
 		chats: map[int64]*tg.Chat{},
-		sent:  []*client.Message{},
+		stats: &client.NetworkStatistics{
+			Entries: []client.NetworkStatisticsEntry{
+				&client.NetworkStatisticsEntryFile{
+					NetworkType:   &client.NetworkTypeOther{},
+					SentBytes:     12,
+					ReceivedBytes: 34,
+				},
+			},
+		},
+		sent: []*client.Message{},
 	}
 }
 
@@ -126,7 +136,7 @@ func (t *mockTGSession) GetChats(*client.GetChatsRequest) (*client.Chats, error)
 func (t *mockTGSession) GetNetworkStatistics(
 	*client.GetNetworkStatisticsRequest) (*client.NetworkStatistics, error) {
 
-	panic("Not implemented")
+	return t.stats, nil
 }
 
 func (t *mockTGSession) GetUser(userID int64) (*tg.User, error) {
@@ -261,6 +271,10 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 		{"private message to Sys user",
 			[]string{":SysServ PRIVMSG 42 :System is up and running.\n"},
 			"PRIVMSG SysServ :test",
+			defaultChats},
+		{"stats subcommand to Sys user",
+			[]string{":SysServ PRIVMSG 42 :network_type=networkTypeOther; sent_bytes=12; received_bytes=34\n"},
+			"PRIVMSG SysServ :stats",
 			defaultChats},
 		{"part",
 			[]string{":-?- PART #channel-name\n"},
