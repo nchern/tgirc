@@ -224,7 +224,7 @@ func onNewChat(state *State, newChat *tg.Chat) error {
 	if err != nil {
 		return err
 	}
-	state.registerChat(newChat.SetMembers(mbrs))
+	state.registerChat(newChat.SetMembers(mbrs...))
 	return nil
 }
 
@@ -378,7 +378,7 @@ func populateChats(state *State) error {
 		if err != nil {
 			return err
 		}
-		state.registerChat(chat.SetMembers(mbrs))
+		state.registerChat(chat.SetMembers(mbrs...))
 	}
 	// TODO: enable async loading
 	// if _, err = tg.LoadChats(&client.LoadChatsRequest{Limit: 400}); err != nil {

@@ -180,8 +180,21 @@ func mkChat(id int64, title string, lastMessageDate int32) *tg.Chat {
 	}
 }
 
+func mkUser(id int64, username string) *tg.User {
+	return tg.NewUser(&client.User{
+		Id: id,
+		Usernames: &client.Usernames{
+			ActiveUsernames: []string{username},
+		},
+	})
+}
+
 func TestHandleIRCEventsShouldProcess(t *testing.T) {
 	defaultChats := []*tg.Chat{mkChat(1, "test-chat", 0)}
+	chatWithMembers := mkChat(11, "Go Group", 0).SetMembers(
+		mkUser(21, "alice"),
+		mkUser(22, "bob"))
+	chatWithMembers.Type = &client.ChatTypeBasicGroup{}
 	listChats := []*tg.Chat{
 		mkChat(11, "narrow alpha", 3),
 		mkChat(12, "broad beta", 2),
@@ -253,6 +266,21 @@ func TestHandleIRCEventsShouldProcess(t *testing.T) {
 			[]string{":-?- PART #channel-name\n"},
 			"PART #channel-name :WeeChat 4.2.1",
 			defaultChats},
+		{"join missing channel",
+			[]string{":localhost 403 -?- #missing :No such channel\n"},
+			"JOIN #missing",
+			defaultChats},
+		{"join with chat members",
+			[]string{
+				":-?- JOIN #Go_Group\n",
+				":localhost 332 -?- #Go_Group :Go Group (chatTypeBasicGroup)\n",
+				":localhost 353 -?- = #Go_Group :alice\n",
+				":localhost 353 -?- = #Go_Group :bob\n",
+				":localhost 353 -?- = #Go_Group :@SysServ\n",
+				":localhost 366 -?- #Go_Group :End of /NAMES list.\n",
+			},
+			"JOIN #Go_Group",
+			[]*tg.Chat{chatWithMembers}},
 		{"cap req",
 			[]string{":localhost CAP * NAK\n"},
 			"CAP REQ :",

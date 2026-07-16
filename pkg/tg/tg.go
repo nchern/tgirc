@@ -236,7 +236,7 @@ func (ch *Chat) Members() []*User {
 }
 
 // SetMembers sets members of this chat
-func (ch *Chat) SetMembers(members []*User) *Chat {
+func (ch *Chat) SetMembers(members ...*User) *Chat {
 	ch.members = members
 	return ch
 }
