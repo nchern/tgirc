@@ -5,6 +5,7 @@ go 1.26.5
 require (
 	github.com/stretchr/testify v1.11.1
 	github.com/zelenin/go-tdlib v0.7.6
+	gopkg.in/irc.v3 v3.1.4
 )
 
 require (

@@ -6,19 +6,21 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"strings"
+
+	ircproto "gopkg.in/irc.v3"
 )
 
 // ErrAlreadyClosed gets returned on attempt to use a sessions with closed the
 // underline network connection
 var ErrAlreadyClosed = errors.New("connection closed")
 
-type Msg string
-
-func (s Msg) Lines() []string { return strings.Split(string(s), "\n") }
-
-func Msgf(format string, a ...any) Msg {
-	return Msg(fmt.Sprintf(format, a...))
+// FormatMessage formats an IRC message with an optional prefix.
+func FormatMessage(prefix, command string, params ...string) string {
+	msg := &ircproto.Message{Command: command, Params: params}
+	if prefix != "" {
+		msg.Prefix = &ircproto.Prefix{Name: prefix}
+	}
+	return msg.String()
 }
 
 // Session represents IRC session
@@ -60,8 +62,12 @@ func (s *Session) Read() (string, error) {
 
 // SendPrivMsg sends a private message to this session
 func (s *Session) SendPrivMsg(sender string, recepient string, text string) error {
-	msg := fmt.Sprintf(":%s PRIVMSG %s :%s", sender, recepient, text)
-	if _, err := s.Write(Msg(msg)); err != nil {
+	msg := &ircproto.Message{
+		Prefix:  &ircproto.Prefix{Name: sender},
+		Command: "PRIVMSG",
+		Params:  []string{recepient, text},
+	}
+	if _, err := s.Write(msg.String()); err != nil {
 		return fmt.Errorf("SendPrivMsg : %w", err)
 	}
 	return nil
@@ -69,11 +75,11 @@ func (s *Session) SendPrivMsg(sender string, recepient string, text string) erro
 
 // Writef writes a formatted IRC message to this session
 func (s *Session) Writef(format string, a ...any) (int, error) {
-	return s.Write(Msg(fmt.Sprintf(format, a...)))
+	return s.Write(fmt.Sprintf(format, a...))
 }
 
-// Writef writes IRC messages to this session
-func (s *Session) Write(msg ...Msg) (int, error) {
+// Write writes IRC messages to this session
+func (s *Session) Write(msg ...string) (int, error) {
 	if s.closed {
 		return 0, ErrAlreadyClosed
 	}
@@ -106,36 +112,4 @@ func (s *Session) String() string {
 	}
 	return fmt.Sprintf("%s %s!%s conn=%s",
 		s.conn.RemoteAddr(), s.Nick, s.Username, state)
-}
-
-// CMD represents an IRC command
-type CMD string
-
-// Is tests this command
-func (c CMD) Is(command string) bool {
-	return strings.HasPrefix(string(c), command)
-}
-
-// Part returns a specified part of this command according to IRC standard
-func (c CMD) Part(i int) string {
-	toks := strings.Split(string(c), " ")
-	if len(toks) < i+1 {
-		return ""
-	}
-	return toks[i]
-}
-
-// Tail returns a tail of this IRC command according to IRC standard
-func (c CMD) Tail() string {
-	s := []rune(c)
-	i, r := 0, ' '
-	for i, r = range s {
-		if i == 0 && r == ':' {
-			continue
-		}
-		if r == ':' {
-			break
-		}
-	}
-	return string(s[i+1:])
 }
