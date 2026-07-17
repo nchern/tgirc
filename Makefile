@@ -51,4 +51,4 @@ coverage-html: vet
 
 .PHONY: local-run
 local-run:
-	while sleep 0.1; do find . -name "*.go" | entr -d -r go run $(GO_BUILD_FLAGS) main.go ; done
+	while sleep 0.1; do find . -name "*.go" | entr -d -r go run $(GO_BUILD_FLAGS) main.go 2>&1 | cut -d ' ' -f1-2,4- ; done
