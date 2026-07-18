@@ -12,3 +12,4 @@ Depends on go-tdlib and TDLib [link](https://github.com/zelenin/go-tdlib#go-tdli
 
 Currently there is no authentication, so anyone who can connect to the bridge
 gets access to Telegram account logged there in.
+Recommended usage: listen locally.
